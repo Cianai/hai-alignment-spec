@@ -16,12 +16,14 @@ autoremove = true
 # When a manual sweep pulls tracked repos, rebase + autostash rather than merge-commit.
 arguments = "--rebase --autostash"
 
-# Preserve `uv tool upgrade --all` from the old cli-update.sh.
-# topgrade's native `uv` step only runs `uv self update` (a no-op for a brew-installed uv binary),
-# so the uv-managed Python CLIs need this explicit command. Runs in interactive `tg` and in the
+# Upgrade ordinary uv-managed host tools explicitly. Agent/MCP packages have separate
+# lifecycle owners and must not be swept by Topgrade: notebooklm-mcp-cli,
+# repowire, and zotero-mcp-server. Topgrade's native `uv` step only runs
+# `uv self update` (a no-op for a brew-installed uv binary), so the remaining
+# Python CLIs need this explicit command. Runs in interactive `tg` and in the
 # daily job (which includes `custom_commands` in its --only set).
 [commands]
-"uv tools" = "uv tool upgrade --all"
+"uv host tools" = "uv tool upgrade docling docling-serve keynote-parser markitdown moodle-dl notebooklm-py osxphotos specify-cli whatsapp-chat-exporter whisperx zotero-cli-ai"
 
 # Package-manager cache GC (added 2026-08-18, ABCD-793 attribution pass). topgrade's --cleanup
 # only cleans its own update steps (brew etc.); uv and npm therefore use their first-party GC.
