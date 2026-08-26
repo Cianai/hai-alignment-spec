@@ -20,6 +20,10 @@ umask 022
 
 # --- PATH + env setup ---
 user_home="${HOME:-{{ .chezmoi.homeDir }}}"
+# Package managers use CI as their common non-interactive contract. Topgrade's
+# --yes answers Topgrade prompts but does not suppress nested pnpm build
+# approvals, which otherwise block a launchd run indefinitely.
+export CI=1
 export PNPM_HOME="$user_home/Library/pnpm"
 export DOTNET_ROOT="/opt/homebrew/opt/dotnet/libexec"
 # Mintlify's scraper launches standard Chrome (`headless: true`). Puppeteer's
