@@ -7,8 +7,9 @@
 # Curated to the SAFE unattended set (no TTY / no sudo / no GUI / no restart):
 #   brew_formula + cleanup · node (npm -g) · pnpm · NuGet-gated dotnet tools ·
 #   gh extensions · pipx · gcloud components
-#   + custom_commands  -> `uv tool upgrade --all`  (topgrade's native `uv` step does NOT do this;
-#                          it only runs `uv self update`, a no-op for a brew-installed uv).
+#   + custom_commands  -> an explicit ordinary uv-host-tool allow-list. Topgrade's native `uv`
+#                          step only runs `uv self update`, a no-op for a brew-installed uv;
+#                          MCP and agent packages retain their separate lifecycle owners.
 # Cursor Agent and Droid retain their native automatic updaters. Claude/plugin
 # state, casks, mas, Cursor/VSCode extensions, macOS System, Office, containers,
 # and Ollama stay interactive/manual: run `tg`.
