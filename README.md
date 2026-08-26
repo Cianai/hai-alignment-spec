@@ -1,0 +1,54 @@
+# Two-host macOS configuration
+
+Private chezmoi source for the persistent MacBook Pro and Mac Mini estate.
+The repository declares reviewed configuration and intended host differences;
+it does not publish local drift automatically.
+
+## Ownership
+
+| State | Owner |
+| -- | -- |
+| Reviewed shell and launchd configuration | chezmoi source plus host templates |
+| Required Homebrew membership | the managed Brewfile; `brew bundle check/install` restores missing formulae |
+| Upgrades of installed host tools | Topgrade and each retained native updater |
+| Repository dependency pins | Renovate in the consuming repository |
+| Secrets and credentials | Doppler or 1Password; only references may enter templates |
+| MCP contracts, plugin and skill membership, agent instructions | their native or Claudian repository authorities, never this repository |
+
+The current managed slice is deliberately narrow:
+
+- `~/.zshrc`
+- `~/.config/topgrade.toml`
+- `~/.local/bin/topgrade-daily.sh`
+- `~/Library/LaunchAgents/com.cianosullivan.topgrade-daily.plist`
+- `~/.config/chezmoi/Brewfile`
+
+Secret-bearing paths and coding-agent primitive directories are denied in
+`.chezmoiignore`. In particular, chezmoi never manages `~/.doppler.env`.
+
+## Host workflow
+
+1. Change the source on a reviewed branch and verify both intended hosts.
+2. Merge the reviewed source.
+3. On a host, pull and inspect without applying:
+
+   ```sh
+   chezmoi git pull -- --autostash --rebase
+   chezmoi diff
+   ```
+
+4. Apply only after the diff is understood:
+
+   ```sh
+   chezmoi apply
+   ```
+
+`git.autoCommit` and `git.autoPush` remain disabled. A failed pull, template,
+diff, secret lookup, or apply stops at that host; it never force-converges or
+publishes local state.
+
+The Mac Mini `cc-*` model-routing fallback functions are intentionally absent.
+Their historical payload references keys that are not present in either
+approved store, and one route still has an unauthenticated LAN-front caveat.
+They can be added as a Mini-only template only after those bindings exist and
+are verified headlessly.

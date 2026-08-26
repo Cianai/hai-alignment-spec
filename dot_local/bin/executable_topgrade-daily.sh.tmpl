@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+# topgrade-daily.sh — daily 09:30 meta-update, invoked by
+# ~/Library/LaunchAgents/com.cianosullivan.topgrade-daily.plist
+#
+# Thin wrapper around `topgrade` (github.com/topgrade-rs/topgrade).
+#
+# Curated to the SAFE unattended set (no TTY / no sudo / no GUI / no restart):
+#   brew_formula + cleanup · node (npm -g) · pnpm · NuGet-gated dotnet tools ·
+#   gh extensions · pipx · gcloud components
+#   + custom_commands  -> `uv tool upgrade --all`  (topgrade's native `uv` step does NOT do this;
+#                          it only runs `uv self update`, a no-op for a brew-installed uv).
+# Cursor Agent and Droid retain their native automatic updaters. Claude/plugin
+# state, casks, mas, Cursor/VSCode extensions, macOS System, Office, containers,
+# and Ollama stay interactive/manual: run `tg`.
+#
+# Self-contained: LaunchAgent shells don't source ~/.zshrc / ~/.zprofile.
+
+set -uo pipefail
+umask 022
+
+# --- PATH + env setup ---
+user_home="${HOME:-{{ .chezmoi.homeDir }}}"
+export PNPM_HOME="$user_home/Library/pnpm"
+export DOTNET_ROOT="/opt/homebrew/opt/dotnet/libexec"
+# Mintlify's scraper launches standard Chrome (`headless: true`). Puppeteer's
+# separate chrome-headless-shell download is optional for that path and has
+# repeatedly left an incomplete cache that aborts the whole global pnpm sweep.
+export PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD=true
+export PATH="$PNPM_HOME/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$user_home/.dotnet/tools:$user_home/.cargo/bin:$user_home/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+LOG="$user_home/Library/Logs/topgrade-daily.log"
+mkdir -p "$(dirname "$LOG")"
+
+# launchd starts jobs with `/` as their working directory. Package managers may
+# resolve stores and temporary paths relative to cwd, so establish a stable,
+# non-project location before Topgrade or any custom command runs.
+if ! cd "$user_home"; then
+  printf '[%s] !! unable to enter stable working directory: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$user_home" >> "$LOG"
+  exit 1
+fi
+
+# --- Log rotation (>5MB, keep 1 backup) ---
+if [[ -f "$LOG" ]] && [[ $(stat -f%z "$LOG" 2>/dev/null || echo 0) -gt 5242880 ]]; then
+  mv "$LOG" "$LOG.1"
+fi
+
+ts() { date '+%Y-%m-%d %H:%M:%S'; }
+
+audit_command() {
+  local command_name="$1"
+  local resolved
+  if resolved=$(command -v "$command_name" 2>/dev/null); then
+    printf '[%s] command audit: %s -> %s\n' "$(ts)" "$command_name" "$resolved"
+  else
+    printf '[%s] !! CRITICAL COMMAND MISSING: %s\n' "$(ts)" "$command_name"
+  fi
+}
+
+{
+  printf '\n[%s] === topgrade daily start (PID=%s) ===\n' "$(ts)" "$$"
+
+  # Chezmoi declares the two formulae required to reconcile this lane on a
+  # fresh host. Homebrew Bundle restores missing membership; Topgrade remains
+  # the daily upgrade owner. Never run bundle cleanup unattended.
+  brewfile="$user_home/.config/chezmoi/Brewfile"
+  membership_rc=0
+  if ! command -v brew >/dev/null 2>&1; then
+    membership_rc=1
+    printf '[%s] !! HOMEBREW MISSING — desired package membership not reconciled\n' "$(ts)"
+  elif [ ! -r "$brewfile" ]; then
+    membership_rc=1
+    printf '[%s] !! BREWFILE MISSING — expected %s\n' "$(ts)" "$brewfile"
+  elif brew bundle check --file="$brewfile" >/dev/null 2>&1; then
+    printf '[%s] Homebrew membership: satisfied\n' "$(ts)"
+  elif brew bundle install --file="$brewfile"; then
+    printf '[%s] Homebrew membership: restored\n' "$(ts)"
+  else
+    membership_rc=1
+    printf '[%s] !! HOMEBREW MEMBERSHIP RESTORE FAILED\n' "$(ts)"
+  fi
+
+  # All global .NET tools share the NuGet source. When that endpoint accepts a
+  # connection but never returns HTTP, each tool update waits independently and
+  # blocks every later Topgrade step. Retry one transient transport failure,
+  # then continue the rest of the sweep, keep the scheduler result non-zero,
+  # and try again on the next run.
+  topgrade_steps=(brew_formula node pnpm github_cli_extensions custom_commands pipx gcloud)
+  degraded_rc=0
+  if curl \
+    --silent \
+    --show-error \
+    --fail \
+    --connect-timeout 5 \
+    --max-time 10 \
+    --retry 1 \
+    --retry-delay 2 \
+    --retry-all-errors \
+    --output /dev/null \
+    https://api.nuget.org/v3/index.json; then
+    topgrade_steps+=(dotnet)
+    printf '[%s] NuGet preflight: reachable\n' "$(ts)"
+  else
+    degraded_rc=1
+    printf '[%s] !! NUGET UNREACHABLE — .NET tool updates skipped; remaining steps continue\n' "$(ts)"
+  fi
+
+  topgrade \
+    --yes \
+    --cleanup \
+    --auto-retry 1 \
+    --notify-end on_failure \
+    --only "${topgrade_steps[@]}"
+  topgrade_rc=$?
+  if [ "$topgrade_rc" -ne 0 ] || [ "$degraded_rc" -ne 0 ] || [ "$membership_rc" -ne 0 ]; then
+    rc=1
+  else
+    rc=0
+  fi
+  printf '[%s] === topgrade daily done (rc=%s) ===\n' "$(ts)" "$rc"
+
+  # Post-sweep link audit. A brew upgrade is unlink-old -> install-new -> link-new;
+  # if the link step is interrupted the keg stays installed-but-unlinked and the
+  # state is SILENT — `brew list` shows it installed, `brew outdated` shows it
+  # current, and the only symptom is `command not found` at some later point of
+  # use. That is how pnpm (the repo's package manager) went missing for four hours
+  # on 2026-08-04 after an upgrade that ran while the machine was saturating.
+  # `brew doctor` is the only surface that reports it. Report-only; never relink
+  # automatically — an unlinked keg can also mean a real binary is deliberately
+  # shadowing it.
+  if command -v brew >/dev/null 2>&1; then
+    doctor_out=$(brew doctor 2>&1 || true)
+    # The keg list sits AFTER a blank line and after the "Run `brew link`" header,
+    # so anchor on that header and stop at the next blank line. Anchoring on the
+    # warning text instead silently returns nothing (the blank line ends the block
+    # before the names appear) — verified against a known-positive keg.
+    unlinked=$(printf '%s\n' "$doctor_out" | awk '/Run `brew link` on these:/{f=1;next} f&&/^[[:space:]]*$/{exit} f' | sed 's/^ *//')
+    broken=$(printf '%s\n' "$doctor_out" | awk '/Broken symlinks were found:/{f=1;next} f&&/^[[:space:]]*$/{exit} f' | sed 's/^ *//')
+    if [ -n "$unlinked" ]; then
+      printf '[%s] !! UNLINKED KEGS — installed but not on PATH:\n' "$(ts)"
+      printf '%s\n' "$unlinked" | sed 's/^/      /'
+      printf '[%s]    fix: brew link <name>  (verify first — a deliberately shadowing binary is not a broken link)\n' "$(ts)"
+    else
+      printf '[%s] link audit: no unlinked kegs\n' "$(ts)"
+    fi
+    if [ -n "$broken" ]; then
+      printf '[%s] !! BROKEN SYMLINKS in brew bin (%s):\n' "$(ts)" "$(printf '%s\n' "$broken" | wc -l | tr -d ' ')"
+      printf '%s\n' "$broken" | head -10 | sed 's/^/      /'
+      printf '[%s]    fix: brew cleanup --prune-prefix  (inspect first)\n' "$(ts)"
+    fi
+
+  fi
+
+  # Audit the commands this unattended lane actually consumes. This avoids
+  # treating intentionally keg-only formulae as partially linked while still
+  # detecting the missing-command failure that originally motivated the audit.
+  for command_name in brew topgrade node npm pnpm dotnet gh pipx uv gcloud curl timeout; do
+    audit_command "$command_name"
+  done
+  for manager_path in /opt/homebrew/opt/node@24/bin/npm /opt/homebrew/opt/node@24/bin/pnpm; do
+    if [ -x "$manager_path" ]; then
+      printf '[%s] command audit: Topgrade package-manager path -> %s\n' "$(ts)" "$manager_path"
+    else
+      printf '[%s] !! TOPGRADE PACKAGE-MANAGER PATH MISSING: %s\n' "$(ts)" "$manager_path"
+    fi
+  done
+
+  # Cursor Agent and Droid install their own updates. They remain visible here
+  # as inventory only; Topgrade is not a second update owner for either binary.
+  for native_command in cursor-agent droid; do
+    if command -v "$native_command" >/dev/null 2>&1; then
+      native_version=$("$native_command" --version 2>/dev/null | head -1 || true)
+      printf '[%s] native-updater inventory: %s %s\n' "$(ts)" "$native_command" "${native_version:-version unavailable}"
+    else
+      printf '[%s] native-updater inventory: %s not installed\n' "$(ts)" "$native_command"
+    fi
+  done
+
+  # REPOWIRE MCP SURFACE. `uv tool upgrade` honours the receipt's `mcp<2` pin, but a
+  # `--force` reinstall (repowire update takes that branch when a package extra is
+  # enabled) rebuilds from the bare spec and silently drops it. mcp 2.x removed
+  # mcp.server.fastmcp, so `repowire mcp` then crashes on import and EVERY mesh tool
+  # disappears — while the hooks, which are pure CLI, keep printing the session-start
+  # banner that names those tools. `repowire doctor` does not test the MCP server, so
+  # this state is invisible to every native check. Report-only.
+  if command -v repowire >/dev/null 2>&1; then
+    rw_tools=$(printf '%s\n%s\n%s\n' \
+      '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"audit","version":"1"}}}' \
+      '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+      '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+      | REPOWIRE_BACKEND=claude-code timeout 30 repowire mcp 2>/dev/null \
+      | python3 -c 'import sys,json
+n=0
+for line in sys.stdin:
+    line=line.strip()
+    if not line: continue
+    try: d=json.loads(line)
+    except Exception: continue
+    if d.get("id")==2: n=len(d.get("result",{}).get("tools",[]))
+print(n)' 2>/dev/null || echo 0)
+    if [ "${rw_tools:-0}" -gt 0 ]; then
+      printf '[%s] repowire MCP audit: %s tools exposed\n' "$(ts)" "$rw_tools"
+    else
+      printf '[%s] !! REPOWIRE MCP SURFACE DEAD — hooks still print the mesh banner, no tools exist\n' "$(ts)"
+      printf '[%s]    fix: uv tool install --force --with "mcp<2" repowire   (then restart agent sessions)\n' "$(ts)"
+    fi
+  fi
+} >> "$LOG" 2>&1
+
+# launchd run/exit state is scheduler evidence. Preserve Topgrade's actual work
+# result so the scheduler cannot report a failed sweep as healthy.
+exit "$rc"

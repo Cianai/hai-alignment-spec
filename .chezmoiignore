@@ -1,0 +1,22 @@
+# Secret material and credentials are never owned by this repository.
+README.md
+.doppler.env
+.env
+.env.*
+.ssh/**
+.aws/**
+.config/gh/**
+
+# MCP, plugin, skill, and coding-agent primitives retain their native or
+# repository authorities. Chezmoi may carry a reviewed projection later, but
+# it does not own these directories or their payloads.
+.agents/**
+.claude/**
+.codex/**
+.cursor/**
+.factory/**
+
+# Refuse to render onto an unreviewed host.
+{{ if not (or (eq .chezmoi.hostname "Mac") (eq .chezmoi.hostname "Cians-Mac") (eq .chezmoi.hostname "macmini")) -}}
+*
+{{ end -}}

@@ -1,0 +1,4 @@
+# Membership only. Homebrew Bundle restores missing formulae; Topgrade owns
+# routine upgrades. Cleanup is always attended.
+brew "chezmoi"
+brew "topgrade"

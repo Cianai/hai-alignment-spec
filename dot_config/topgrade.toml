@@ -1,0 +1,41 @@
+# topgrade — meta-updater for this Mac.  github.com/topgrade-rs/topgrade
+#   Interactive full-fleet sweep:  tg   (alias -> topgrade)
+#   Unattended daily 09:30:        ~/.local/bin/topgrade-daily.sh (launchd) runs a curated --only set
+# Supersedes the old hand-rolled cli-update loop + homebrew-autoupdate (2026-06-05).
+# Full annotated reference: `topgrade --config-reference`
+
+[misc]
+# Only surface a notification at the end if a step actually failed (passive awareness for the daily job).
+notify_end = "on_failure"
+
+[brew]
+# Drop orphaned formula dependencies after upgrading.
+autoremove = true
+
+[git]
+# When a manual sweep pulls tracked repos, rebase + autostash rather than merge-commit.
+arguments = "--rebase --autostash"
+
+# Preserve `uv tool upgrade --all` from the old cli-update.sh.
+# topgrade's native `uv` step only runs `uv self update` (a no-op for a brew-installed uv binary),
+# so the uv-managed Python CLIs need this explicit command. Runs in interactive `tg` and in the
+# daily job (which includes `custom_commands` in its --only set).
+[commands]
+"uv tools" = "uv tool upgrade --all"
+
+# Package-manager cache GC (added 2026-08-18, ABCD-793 attribution pass). topgrade's --cleanup
+# only cleans its own update steps (brew etc.); uv and npm therefore use their first-party GC.
+# `npm cache verify` garbage-collects + integrity-checks (never `clean --force`); puppeteer/HF
+# stale-version sweeps stay manual (version-aware deletion, small footprints).
+# uv holds a single cache-wide lock, and the uvx-launched MCP servers (browser-use, paper-search,
+# elevenlabs, ...) hold it for their ENTIRE process lifetime — Claude Desktop keeps them up 24/7,
+# so an unguarded prune waits 300s then fails (first live run, 2026-08-18). --force is unsafe here:
+# those servers' ephemeral envs live inside this cache. Guarded skip is the correct unattended
+# behaviour; the prune actually runs on the occasions the lock is free (e.g. shortly after reboot).
+"uv cache prune" = "if lsof \"$HOME/.cache/uv/.lock\" >/dev/null 2>&1; then echo 'uv cache busy (live uvx MCP servers hold the lock) — skipped'; else UV_LOCK_TIMEOUT=10 uv cache prune; fi"
+# Keep `pnpm store prune` manual. A live back-to-back proof on 2026-08-25 showed
+# the daily prune reclaimed 701MB, then forced the next unchanged global update
+# to download 860 of 878 packages. Daily GC costs more network and time than it
+# saves; run it only as attended maintenance when storage pressure justifies the
+# deliberately cold next update.
+"npm cache verify" = "npm cache verify"
