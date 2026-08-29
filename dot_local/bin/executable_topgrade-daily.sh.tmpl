@@ -10,9 +10,9 @@
 #   + custom_commands  -> an explicit ordinary uv-host-tool allow-list. Topgrade's native `uv`
 #                          step only runs `uv self update`, a no-op for a brew-installed uv;
 #                          MCP and agent packages retain their separate lifecycle owners.
-# Cursor Agent and Droid retain their native automatic updaters. Claude/plugin
-# state, casks, mas, Cursor/VSCode extensions, macOS System, Office, containers,
-# and Ollama stay interactive/manual: run `tg`.
+# Claude Code, Cursor Agent, and Droid retain their native automatic updaters.
+# Plugin state, casks, mas, Cursor/VSCode extensions, macOS System, Office,
+# containers, and Ollama stay interactive/manual: run `tg`.
 #
 # Self-contained: LaunchAgent shells don't source ~/.zshrc / ~/.zprofile.
 
@@ -31,7 +31,7 @@ export DOTNET_ROOT="/opt/homebrew/opt/dotnet/libexec"
 # separate chrome-headless-shell download is optional for that path and has
 # repeatedly left an incomplete cache that aborts the whole global pnpm sweep.
 export PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD=true
-export PATH="$PNPM_HOME/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$user_home/.dotnet/tools:$user_home/.cargo/bin:$user_home/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="$PNPM_HOME/bin:/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$user_home/.dotnet/tools:$user_home/.cargo/bin:$user_home/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 LOG="$user_home/Library/Logs/topgrade-daily.log"
 mkdir -p "$(dirname "$LOG")"
@@ -177,9 +177,9 @@ audit_command() {
       printf '[%s] optional command absent: %s\n' "$(ts)" "$optional_command"
     fi
   done
-  # Cursor Agent and Droid install their own updates. They remain visible here
-  # as inventory only; Topgrade is not a second update owner for either binary.
-  for native_command in cursor-agent droid; do
+  # These agents install their own updates. They remain visible here as
+  # inventory only; Topgrade is not a second update owner for their binaries.
+  for native_command in claude cursor-agent droid; do
     if command -v "$native_command" >/dev/null 2>&1; then
       native_version=$("$native_command" --version 2>/dev/null | head -1 || true)
       printf '[%s] native-updater inventory: %s %s\n' "$(ts)" "$native_command" "${native_version:-version unavailable}"
