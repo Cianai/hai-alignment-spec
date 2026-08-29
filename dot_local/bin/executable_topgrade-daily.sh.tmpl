@@ -89,9 +89,18 @@ audit_command() {
   # blocks every later Topgrade step. Retry one transient transport failure,
   # then continue the rest of the sweep, keep the scheduler result non-zero,
   # and try again on the next run.
-  topgrade_steps=(brew_formula node pnpm github_cli_extensions custom_commands pipx gcloud)
+  topgrade_steps=(brew_formula node pnpm github_cli_extensions custom_commands)
+  for optional_step in pipx gcloud; do
+    if command -v "$optional_step" >/dev/null 2>&1; then
+      topgrade_steps+=("$optional_step")
+    else
+      printf '[%s] optional manager absent: %s — skipped\n' "$(ts)" "$optional_step"
+    fi
+  done
   degraded_rc=0
-  if curl \
+  if ! command -v dotnet >/dev/null 2>&1; then
+    printf '[%s] optional manager absent: dotnet — NuGet preflight skipped\n' "$(ts)"
+  elif curl \
     --silent \
     --show-error \
     --fail \
@@ -158,8 +167,15 @@ audit_command() {
   # Audit the commands this unattended lane actually consumes. This avoids
   # treating intentionally keg-only formulae as partially linked while still
   # detecting the missing-command failure that originally motivated the audit.
-  for command_name in brew topgrade node npm pnpm dotnet gh pipx uv gcloud curl timeout; do
+  for command_name in brew topgrade chezmoi node npm pnpm gh uv curl timeout; do
     audit_command "$command_name"
+  done
+  for optional_command in dotnet pipx gcloud; do
+    if command -v "$optional_command" >/dev/null 2>&1; then
+      audit_command "$optional_command"
+    else
+      printf '[%s] optional command absent: %s\n' "$(ts)" "$optional_command"
+    fi
   done
   for manager_path in /opt/homebrew/opt/node@24/bin/npm /opt/homebrew/opt/node@24/bin/pnpm; do
     if [ -x "$manager_path" ]; then

@@ -17,7 +17,8 @@ it does not publish local drift automatically.
 
 The current managed slice is deliberately narrow:
 
-- `~/.zshrc`
+- `~/.zshrc` on the MacBook; the Mini keeps its existing shell state until a
+  reviewed host overlay replaces it
 - `~/.config/topgrade.toml`
 - `~/.local/bin/topgrade-daily.sh`
 - `~/Library/LaunchAgents/com.cianosullivan.topgrade-daily.plist`
@@ -46,6 +47,12 @@ Secret-bearing paths and coding-agent primitive directories are denied in
 `git.autoCommit` and `git.autoPush` remain disabled. A failed pull, template,
 diff, secret lookup, or apply stops at that host; it never force-converges or
 publishes local state.
+
+The Topgrade template is host-aware. Both hosts receive the same updater,
+membership, scheduler, and safe cache-maintenance contract. MacBook-only uv
+tools are omitted on the Mini, and an absent optional manager such as dotnet,
+pipx, or gcloud is recorded as an intentional skip rather than a failed fleet
+step.
 
 The Mac Mini `cc-*` model-routing fallback functions are intentionally absent.
 Their historical payload references keys that are not present in either
