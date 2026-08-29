@@ -16,6 +16,13 @@ README.md
 .cursor/**
 .factory/**
 
+# The current shell profile describes the MacBook's interactive developer
+# toolchain. Keep the Mini's existing shell state until a reviewed host overlay
+# replaces it; the Topgrade slice below is independently safe to adopt now.
+{{ if eq .chezmoi.hostname "macmini" -}}
+.zshrc
+{{ end -}}
+
 # Refuse to render onto an unreviewed host.
 {{ if not (or (eq .chezmoi.hostname "Mac") (eq .chezmoi.hostname "Cians-Mac") (eq .chezmoi.hostname "macmini")) -}}
 *
