@@ -1,0 +1,10 @@
+# Membership only. Homebrew Bundle restores missing formulae; Topgrade owns
+# routine upgrades. Cleanup runs through the separately scheduled native GC
+# lane and never removes undeclared extras.
+brew "chezmoi"
+brew "topgrade"
+{{ if eq .chezmoi.hostname "macmini" -}}
+# macOS has no wall-clock timeout utility. The Mini's unattended maintenance
+# lanes use gtimeout to enforce the fleet maximum-runtime contract.
+brew "coreutils"
+{{ end -}}

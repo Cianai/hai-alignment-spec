@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# topgrade-daily.sh — daily 09:30 meta-update, invoked by
+# topgrade-daily.sh — bounded daily host update, invoked by
 # ~/Library/LaunchAgents/com.cianosullivan.topgrade-daily.plist
 #
 # Thin wrapper around `topgrade` (github.com/topgrade-rs/topgrade).
 #
 # Curated to the SAFE unattended set (no TTY / no sudo / no GUI / no restart):
-#   brew_formula + cleanup · node (npm -g) · pnpm · NuGet-gated dotnet tools ·
+#   brew_formula · node (npm -g) · pnpm · NuGet-gated dotnet tools ·
 #   gh extensions · pipx · gcloud components
 #   + custom_commands  -> an explicit ordinary uv-host-tool allow-list. Topgrade's native `uv`
 #                          step only runs `uv self update`, a no-op for a brew-installed uv;
@@ -34,7 +34,101 @@ export PUPPETEER_SKIP_CHROME_HEADLESS_SHELL_DOWNLOAD=true
 export PATH="$PNPM_HOME/bin:/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$user_home/.dotnet/tools:$user_home/.cargo/bin:$user_home/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 LOG="$user_home/Library/Logs/topgrade-daily.log"
+RESULT_LOG="$user_home/Library/Logs/topgrade-daily.jsonl"
+state_dir="$user_home/.local/state/dependency-maintenance"
+lock_file="$state_dir/maintenance.lock"
+latest_result="$state_dir/topgrade-daily-latest.json"
+{{ if eq .chezmoi.hostname "macmini" -}}
+success_marker="$state_dir/topgrade-daily-last-success"
+{{ end -}}
 mkdir -p "$(dirname "$LOG")"
+mkdir -p "$state_dir"
+
+ts() { date '+%Y-%m-%d %H:%M:%S'; }
+iso_ts() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
+
+emit_result() {
+  local classification="$1"
+  local disposition="$2"
+  local exit_code="$3"
+  local duration_seconds="$4"
+  local reason="$5"
+  local observed_at
+  observed_at=$(iso_ts)
+  /usr/bin/jq -nc \
+    --arg observed_at "$observed_at" \
+    --arg run_id "${host_name}:${observed_at}:$$" \
+    --arg host "$host_name" \
+    --arg classification "$classification" \
+    --arg disposition "$disposition" \
+    --arg reason "$reason" \
+    --argjson exit_code "$exit_code" \
+    --argjson duration_seconds "$duration_seconds" \
+    '{
+      schema_version: 6,
+      run_id: $run_id,
+      worker: "topgrade-daily",
+      binding_id: "com.cianosullivan.topgrade-daily",
+      trigger_id: "launchd:calendar",
+      source_id: "host-package-managers",
+      observed_at: $observed_at,
+      host: $host,
+      constraints: {unattended: true, interactive: false, casks: false, agent_primitives: false},
+      result: {
+        classification: $classification,
+        disposition: $disposition,
+        exit_code: $exit_code,
+        duration_seconds: $duration_seconds,
+        reason: $reason
+      },
+      failure_route: "ABCD-907"
+    }' | tee -a "$RESULT_LOG" > "$latest_result.tmp"
+  mv "$latest_result.tmp" "$latest_result"
+}
+
+host_name=$(/usr/sbin/scutil --get LocalHostName 2>/dev/null || hostname -s)
+script_path=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
+
+# lockf is the native macOS cross-process lock. It prevents the daily updater,
+# four-hour drift observation, weekly GC, and attended invocations from
+# mutating or inspecting package-manager state concurrently.
+if [[ "${DEPENDENCY_MAINTENANCE_LOCK_HELD:-0}" != 1 ]]; then
+  /usr/bin/lockf -s -t 0 -k "$lock_file" \
+    /usr/bin/env DEPENDENCY_MAINTENANCE_LOCK_HELD=1 "$script_path" "$@"
+  lock_rc=$?
+  if [ "$lock_rc" -eq 75 ]; then
+    printf '[%s] deferred: dependency-maintenance lock held\n' "$(ts)" >> "$LOG"
+    emit_result "deferred" "defer" 75 0 "dependency-maintenance lock held"
+  fi
+  exit "$lock_rc"
+fi
+
+{{ if eq .chezmoi.hostname "macmini" -}}
+# The Mini exposes three bounded candidate windows. A verified success marker
+# makes later windows no-ops; a lock conflict or failed run can retry at the
+# next window without creating more than one successful mutation per day.
+today=$(date '+%Y-%m-%d')
+if [[ "${TOPGRADE_FORCE:-0}" != 1 ]] && [ -r "$success_marker" ] && [ "$(cat "$success_marker")" = "$today" ]; then
+  printf '[%s] coalesced: successful daily update already recorded\n' "$(ts)" >> "$LOG"
+  emit_result "already-current" "retain-state" 0 0 "successful daily update already recorded"
+  exit 0
+fi
+
+# Defer only for concrete competing mutation commands. Long-running Codex app
+# server and tunnel processes are host services, not proof of active work.
+conflicting_processes=$(ps -axo pid=,args= | awk -v self="$$" '
+  $1 != self &&
+  $0 ~ /(brew|npm|pnpm|uv|dotnet|gcloud|topgrade)/ &&
+  $0 ~ /(install|upgrade|update|uninstall|remove|cleanup|bundle)/ {
+    print
+  }
+')
+if [ -n "$conflicting_processes" ]; then
+  printf '[%s] deferred: competing dependency mutation is active\n%s\n' "$(ts)" "$conflicting_processes" >> "$LOG"
+  emit_result "deferred" "defer" 75 0 "competing dependency mutation is active"
+  exit 75
+fi
+{{ end -}}
 
 # launchd starts jobs with `/` as their working directory. Package managers may
 # resolve stores and temporary paths relative to cwd, so establish a stable,
@@ -48,8 +142,6 @@ fi
 if [[ -f "$LOG" ]] && [[ $(stat -f%z "$LOG" 2>/dev/null || echo 0) -gt 5242880 ]]; then
   mv "$LOG" "$LOG.1"
 fi
-
-ts() { date '+%Y-%m-%d %H:%M:%S'; }
 
 audit_command() {
   local command_name="$1"
@@ -89,7 +181,10 @@ audit_command() {
   # blocks every later Topgrade step. Retry one transient transport failure,
   # then continue the rest of the sweep, keep the scheduler result non-zero,
   # and try again on the next run.
-  topgrade_steps=(brew_formula node pnpm github_cli_extensions custom_commands)
+  topgrade_steps=(brew_formula node pnpm github_cli_extensions)
+{{ if ne .chezmoi.hostname "macmini" -}}
+  topgrade_steps+=(custom_commands)
+{{ end -}}
   for optional_step in pipx gcloud; do
     if command -v "$optional_step" >/dev/null 2>&1; then
       topgrade_steps+=("$optional_step")
@@ -118,12 +213,21 @@ audit_command() {
     printf '[%s] !! NUGET UNREACHABLE — .NET tool updates skipped; remaining steps continue\n' "$(ts)"
   fi
 
+  run_started_epoch=$(date '+%s')
+{{ if eq .chezmoi.hostname "macmini" -}}
+  /opt/homebrew/bin/gtimeout --signal=TERM --kill-after=30s 3600s topgrade \
+    --yes \
+    --auto-retry 1 \
+    --notify-end on_failure \
+    --only "${topgrade_steps[@]}"
+{{ else -}}
   topgrade \
     --yes \
     --cleanup \
     --auto-retry 1 \
     --notify-end on_failure \
     --only "${topgrade_steps[@]}"
+{{ end -}}
   topgrade_rc=$?
   if [ "$topgrade_rc" -ne 0 ] || [ "$degraded_rc" -ne 0 ] || [ "$membership_rc" -ne 0 ]; then
     rc=1
@@ -228,6 +332,17 @@ print(n)' 2>/dev/null || echo 0)
     fi
   fi
 } >> "$LOG" 2>&1
+
+run_duration=$(( $(date '+%s') - run_started_epoch ))
+if [ "$rc" -eq 0 ]; then
+{{ if eq .chezmoi.hostname "macmini" -}}
+  printf '%s\n' "$(date '+%Y-%m-%d')" > "$success_marker.tmp"
+  mv "$success_marker.tmp" "$success_marker"
+{{ end -}}
+  emit_result "update-succeeded" "act" 0 "$run_duration" "curated steps and postflight completed"
+else
+  emit_result "update-failed" "fail" "$rc" "$run_duration" "one or more curated steps or preflights failed"
+fi
 
 # launchd run/exit state is scheduler evidence. Preserve Topgrade's actual work
 # result so the scheduler cannot report a failed sweep as healthy.

@@ -1,6 +1,6 @@
 # topgrade — meta-updater for this Mac.  github.com/topgrade-rs/topgrade
 #   Interactive full-fleet sweep:  tg   (alias -> topgrade)
-#   Unattended daily 09:30:        ~/.local/bin/topgrade-daily.sh (launchd) runs a curated --only set
+#   Unattended daily reconciliation: ~/.local/bin/topgrade-daily.sh (launchd) runs a curated --only set
 # Supersedes the old hand-rolled cli-update loop + homebrew-autoupdate (2026-06-05).
 # Full annotated reference: `topgrade --config-reference`
 
@@ -23,7 +23,6 @@ arguments = "--rebase --autostash"
 # notebooklm-mcp-cli, repowire, and zotero-mcp-server. The Mini currently has no
 # ordinary uv tool estate, so this command is deliberately absent there.
 "uv host tools" = "uv tool upgrade docling docling-serve keynote-parser markitdown moodle-dl notebooklm-py osxphotos specify-cli whatsapp-chat-exporter whisperx zotero-cli-ai"
-{{ end -}}
 
 # Package-manager cache GC (added 2026-08-18, ABCD-793 attribution pass). topgrade's --cleanup
 # only cleans its own update steps (brew etc.); uv and npm therefore use their first-party GC.
@@ -39,3 +38,7 @@ arguments = "--rebase --autostash"
 # saves; run it only as attended maintenance when storage pressure justifies the
 # deliberately cold next update.
 "npm cache verify" = "npm cache verify"
+{{ else -}}
+# The Mini has no ordinary uv host-tool estate. Cache garbage collection is
+# separated from the daily updater and runs through the weekly native GC lane.
+{{ end -}}

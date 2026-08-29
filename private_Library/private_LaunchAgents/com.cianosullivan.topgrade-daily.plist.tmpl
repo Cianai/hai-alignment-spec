@@ -17,11 +17,34 @@
 	<key>StandardOutPath</key>
 	<string>{{ .chezmoi.homeDir }}/Library/Logs/topgrade-daily.launchd.log</string>
 	<key>StartCalendarInterval</key>
+{{ if eq .chezmoi.hostname "macmini" -}}
+	<array>
+		<dict>
+			<key>Hour</key>
+			<integer>5</integer>
+			<key>Minute</key>
+			<integer>30</integer>
+		</dict>
+		<dict>
+			<key>Hour</key>
+			<integer>6</integer>
+			<key>Minute</key>
+			<integer>30</integer>
+		</dict>
+		<dict>
+			<key>Hour</key>
+			<integer>7</integer>
+			<key>Minute</key>
+			<integer>30</integer>
+		</dict>
+	</array>
+{{ else -}}
 	<dict>
 		<key>Hour</key>
 		<integer>9</integer>
 		<key>Minute</key>
 		<integer>30</integer>
 	</dict>
+{{ end -}}
 </dict>
 </plist>

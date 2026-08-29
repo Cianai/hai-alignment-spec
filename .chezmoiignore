@@ -23,6 +23,15 @@ README.md
 .zshrc
 {{ end -}}
 
+# Prove the higher-frequency observation and split cleanup lanes on the
+# always-on Mini before projecting them onto the MacBook.
+{{ if ne .chezmoi.hostname "macmini" -}}
+.local/bin/dependency-drift.sh
+.local/bin/dependency-maintenance-weekly.sh
+Library/LaunchAgents/com.cianosullivan.dependency-drift.plist
+Library/LaunchAgents/com.cianosullivan.dependency-maintenance-weekly.plist
+{{ end -}}
+
 # Refuse to render onto an unreviewed host.
 {{ if not (or (eq .chezmoi.hostname "Mac") (eq .chezmoi.hostname "Cians-Mac") (eq .chezmoi.hostname "macmini")) -}}
 *
