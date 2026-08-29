@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Weekly manager-native garbage collection for the Mini. This is gc-auto only:
+# no undeclared-extra removal and no pnpm store prune.
+
+set -uo pipefail
+umask 022
+
+user_home="${HOME:-{{ .chezmoi.homeDir }}}"
+export CI=1
+export PNPM_HOME="$user_home/Library/pnpm"
+export PATH="$PNPM_HOME/bin:/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$user_home/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+log_dir="$user_home/Library/Logs"
+state_dir="$user_home/.local/state/dependency-maintenance"
+log_file="$log_dir/dependency-maintenance-weekly.log"
+result_log="$log_dir/dependency-maintenance-weekly.jsonl"
+latest_result="$state_dir/dependency-maintenance-weekly-latest.json"
+lock_file="$state_dir/maintenance.lock"
+mkdir -p "$log_dir" "$state_dir"
+
+iso_ts() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
+host_name=$(/usr/sbin/scutil --get LocalHostName 2>/dev/null || hostname -s)
+script_path=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
+
+if [[ "${DEPENDENCY_MAINTENANCE_LOCK_HELD:-0}" != 1 ]]; then
+  /usr/bin/lockf -s -t 0 -k "$lock_file" \
+    /usr/bin/env DEPENDENCY_MAINTENANCE_LOCK_HELD=1 "$script_path" "$@"
+  exit $?
+fi
+
+observed_at=$(iso_ts)
+run_started_epoch=$(date '+%s')
+brew_rc=0
+uv_rc=0
+npm_rc=0
+
+{
+  printf '[%s] weekly dependency GC start\n' "$observed_at"
+  /opt/homebrew/bin/gtimeout --signal=TERM --kill-after=30s 1800s brew cleanup || brew_rc=$?
+  if lsof "$user_home/.cache/uv/.lock" >/dev/null 2>&1; then
+    printf 'uv cache busy — skipped\n'
+  else
+    UV_LOCK_TIMEOUT=10 /opt/homebrew/bin/gtimeout 300s uv cache prune || uv_rc=$?
+  fi
+  /opt/homebrew/bin/gtimeout 300s npm cache verify || npm_rc=$?
+  printf 'pnpm store prune: excluded; attended only because it forces a cold next update\n'
+} >> "$log_file" 2>&1
+
+duration_seconds=$(( $(date '+%s') - run_started_epoch ))
+if [ "$brew_rc" -eq 0 ] && [ "$uv_rc" -eq 0 ] && [ "$npm_rc" -eq 0 ]; then
+  rc=0
+  disposition="gc-auto"
+else
+  rc=1
+  disposition="fail"
+fi
+
+/usr/bin/jq -nc \
+  --arg observed_at "$observed_at" \
+  --arg run_id "${host_name}:${observed_at}:$$" \
+  --arg host "$host_name" \
+  --arg disposition "$disposition" \
+  --argjson duration_seconds "$duration_seconds" \
+  --argjson brew_rc "$brew_rc" \
+  --argjson uv_rc "$uv_rc" \
+  --argjson npm_rc "$npm_rc" \
+  '{
+    schema_version:6,
+    run_id:$run_id,
+    worker:"dependency-maintenance-weekly",
+    binding_id:"com.cianosullivan.dependency-maintenance-weekly",
+    trigger_id:"launchd:calendar:weekly",
+    source_id:"manager-native-garbage-collection",
+    observed_at:$observed_at,
+    host:$host,
+    constraints:{lifecycle_action:"gc-auto",undeclared_extra_removal:false,pnpm_store_prune:false,maximum_runtime_seconds:2400},
+    result:{classification:"manager-native-garbage-collection",disposition:$disposition,lifecycle_action:(if $disposition=="gc-auto" then "gc-auto" else null end),duration_seconds:$duration_seconds,steps:{homebrew:{exit_code:$brew_rc},uv:{exit_code:$uv_rc},npm:{exit_code:$npm_rc}}},
+    failure_route:"ABCD-907"
+  }' | tee -a "$result_log" > "$latest_result.tmp"
+mv "$latest_result.tmp" "$latest_result"
+exit "$rc"

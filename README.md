@@ -24,6 +24,15 @@ The current managed slice is deliberately narrow:
 - `~/Library/LaunchAgents/com.cianosullivan.topgrade-daily.plist`
 - `~/.config/chezmoi/Brewfile`
 
+The always-on Mini additionally proves the split maintenance cadence before it
+is projected onto the MacBook:
+
+- read-only dependency drift observation every four hours;
+- one successful daily mutation across bounded 05:30, 06:30, and 07:30 retry
+  windows; and
+- manager-native garbage collection at 04:30 each Sunday, excluding pnpm store
+  pruning and undeclared-extra removal.
+
 Secret-bearing paths and coding-agent primitive directories are denied in
 `.chezmoiignore`. In particular, chezmoi never manages `~/.doppler.env`.
 

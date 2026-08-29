@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# Read-only host dependency observation. This never installs, upgrades, cleans,
+# or removes a package; it emits a bounded Automation I/O Envelope snapshot.
+
+set -uo pipefail
+umask 022
+
+user_home="${HOME:-{{ .chezmoi.homeDir }}}"
+export CI=1
+export HOMEBREW_NO_AUTO_UPDATE=1
+export npm_config_update_notifier=false
+export npm_config_audit=false
+export PNPM_HOME="$user_home/Library/pnpm"
+export PATH="$PNPM_HOME/bin:/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$user_home/.dotnet/tools:$user_home/.cargo/bin:$user_home/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+log_dir="$user_home/Library/Logs"
+state_dir="$user_home/.local/state/dependency-maintenance"
+result_log="$log_dir/dependency-drift.jsonl"
+latest_result="$state_dir/dependency-drift-latest.json"
+lock_file="$state_dir/maintenance.lock"
+mkdir -p "$log_dir" "$state_dir"
+
+iso_ts() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
+host_name=$(/usr/sbin/scutil --get LocalHostName 2>/dev/null || hostname -s)
+script_path=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
+
+if [[ "${DEPENDENCY_MAINTENANCE_LOCK_HELD:-0}" != 1 ]]; then
+  /usr/bin/lockf -s -t 0 -k "$lock_file" \
+    /usr/bin/env DEPENDENCY_MAINTENANCE_LOCK_HELD=1 "$script_path" "$@"
+  lock_rc=$?
+  if [ "$lock_rc" -eq 75 ]; then
+    observed_at=$(iso_ts)
+    /usr/bin/jq -nc \
+      --arg observed_at "$observed_at" \
+      --arg run_id "${host_name}:${observed_at}:$$" \
+      --arg host "$host_name" \
+      '{schema_version:6,run_id:$run_id,worker:"dependency-drift",binding_id:"com.cianosullivan.dependency-drift",trigger_id:"launchd:calendar:four-hour",source_id:"host-package-managers",observed_at:$observed_at,host:$host,constraints:{read_only:true},result:{classification:"deferred",disposition:"defer",reason:"dependency-maintenance lock held",exit_code:75},failure_route:"ABCD-907"}' \
+      | tee -a "$result_log" > "$latest_result.tmp"
+    mv "$latest_result.tmp" "$latest_result"
+  fi
+  exit "$lock_rc"
+fi
+
+run_started_epoch=$(date '+%s')
+observed_at=$(iso_ts)
+run_id="${host_name}:${observed_at}:$$"
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/dependency-drift.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT
+
+printf '%s\n' '{"formulae":[],"casks":[]}' > "$work_dir/brew.json"
+printf '%s\n' '{}' > "$work_dir/npm.json"
+printf '%s\n' '{}' > "$work_dir/pnpm.json"
+: > "$work_dir/gh.txt"
+: > "$work_dir/uv.txt"
+: > "$work_dir/errors.txt"
+
+brew_rc=0
+/opt/homebrew/bin/gtimeout 120s brew outdated --formula --json=v2 \
+  > "$work_dir/brew.out" 2> "$work_dir/brew.err" || brew_rc=$?
+if [ -s "$work_dir/brew.out" ] && /usr/bin/jq -e . "$work_dir/brew.out" >/dev/null 2>&1; then
+  mv "$work_dir/brew.out" "$work_dir/brew.json"
+else
+  printf 'brew outdated failed (rc=%s): %s\n' "$brew_rc" "$(head -c 500 "$work_dir/brew.err")" >> "$work_dir/errors.txt"
+fi
+
+npm_rc=0
+/opt/homebrew/bin/gtimeout 120s npm outdated -g --json \
+  > "$work_dir/npm.out" 2> "$work_dir/npm.err" || npm_rc=$?
+if [ ! -s "$work_dir/npm.out" ]; then
+  printf '%s\n' '{}' > "$work_dir/npm.out"
+fi
+if /usr/bin/jq -e . "$work_dir/npm.out" >/dev/null 2>&1 && { [ "$npm_rc" -eq 0 ] || [ "$npm_rc" -eq 1 ]; }; then
+  mv "$work_dir/npm.out" "$work_dir/npm.json"
+else
+  printf 'npm outdated failed (rc=%s): %s\n' "$npm_rc" "$(head -c 500 "$work_dir/npm.err")" >> "$work_dir/errors.txt"
+fi
+
+pnpm_rc=0
+/opt/homebrew/bin/gtimeout 120s pnpm outdated -g --format json \
+  > "$work_dir/pnpm.out" 2> "$work_dir/pnpm.err" || pnpm_rc=$?
+if [ ! -s "$work_dir/pnpm.out" ]; then
+  printf '%s\n' '{}' > "$work_dir/pnpm.out"
+fi
+if /usr/bin/jq -e . "$work_dir/pnpm.out" >/dev/null 2>&1 && { [ "$pnpm_rc" -eq 0 ] || [ "$pnpm_rc" -eq 1 ]; }; then
+  mv "$work_dir/pnpm.out" "$work_dir/pnpm.json"
+else
+  printf 'pnpm outdated failed (rc=%s): %s\n' "$pnpm_rc" "$(head -c 500 "$work_dir/pnpm.err")" >> "$work_dir/errors.txt"
+fi
+
+/opt/homebrew/bin/gtimeout 30s gh extension list > "$work_dir/gh.txt" 2>> "$work_dir/errors.txt" || true
+/opt/homebrew/bin/gtimeout 30s uv tool list --show-version-specifiers > "$work_dir/uv.txt" 2>> "$work_dir/errors.txt" || true
+
+duration_seconds=$(( $(date '+%s') - run_started_epoch ))
+/usr/bin/jq -nc \
+  --arg observed_at "$observed_at" \
+  --arg run_id "$run_id" \
+  --arg host "$host_name" \
+  --slurpfile brew "$work_dir/brew.json" \
+  --slurpfile npm "$work_dir/npm.json" \
+  --slurpfile pnpm "$work_dir/pnpm.json" \
+  --rawfile gh "$work_dir/gh.txt" \
+  --rawfile uv "$work_dir/uv.txt" \
+  --rawfile errors "$work_dir/errors.txt" \
+  --argjson duration_seconds "$duration_seconds" \
+  '
+    def count_items:
+      if type == "array" or type == "object" then length else 0 end;
+    ($brew[0].formulae | count_items) as $brew_count |
+    ($npm[0] | count_items) as $npm_count |
+    ($pnpm[0] | count_items) as $pnpm_count |
+    ($brew_count + $npm_count + $pnpm_count) as $outdated_count |
+    ($errors | split("\n") | map(select(length > 0))) as $exceptions |
+    {
+      schema_version: 6,
+      run_id: $run_id,
+      worker: "dependency-drift",
+      binding_id: "com.cianosullivan.dependency-drift",
+      trigger_id: "launchd:calendar:four-hour",
+      source_id: "host-package-managers",
+      occurred_at: $observed_at,
+      observed_at: $observed_at,
+      cursor: null,
+      dedup_key: ($host + ":" + $observed_at),
+      provenance: [
+        {manager:"homebrew",command:"brew outdated --formula --json=v2"},
+        {manager:"npm",command:"npm outdated -g --json"},
+        {manager:"pnpm",command:"pnpm outdated -g --format json"}
+      ],
+      constraints: {read_only:true,maximum_runtime_seconds:420},
+      host: $host,
+      evidence: {
+        managers: {homebrew:$brew[0],npm:$npm[0],pnpm:$pnpm[0]},
+        inventories: {github_cli_extensions:$gh,uv_tools:$uv},
+        outdated_count:$outdated_count,
+        duration_seconds:$duration_seconds,
+        exceptions:$exceptions
+      },
+      result: {
+        classification:"host-dependency-drift",
+        materiality:"unassessed",
+        disposition:(if ($exceptions|length)>0 then "fail" elif $outdated_count>0 then "enrich-owner" else "retain-state" end),
+        target:"ABCD-907",
+        writer:null,
+        proposed_mutation:null,
+        authorization:"read-only",
+        lifecycle_action:null,
+        verification:{fresh_read:true,outdated_count:$outdated_count},
+        next_cursor:null,
+        failure_route:"ABCD-907"
+      }
+    }
+  ' | tee -a "$result_log" > "$latest_result.tmp"
+mv "$latest_result.tmp" "$latest_result"
+
+if [ -s "$work_dir/errors.txt" ]; then
+  exit 1
+fi
