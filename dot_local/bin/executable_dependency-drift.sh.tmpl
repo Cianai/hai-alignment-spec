@@ -87,8 +87,19 @@ else
   printf 'pnpm outdated failed (rc=%s): %s\n' "$pnpm_rc" "$(head -c 500 "$work_dir/pnpm.err")" >> "$work_dir/errors.txt"
 fi
 
-/opt/homebrew/bin/gtimeout 30s gh extension list > "$work_dir/gh.txt" 2>> "$work_dir/errors.txt" || true
-/opt/homebrew/bin/gtimeout 30s uv tool list --show-version-specifiers > "$work_dir/uv.txt" 2>> "$work_dir/errors.txt" || true
+gh_rc=0
+/opt/homebrew/bin/gtimeout 30s gh extension list \
+  > "$work_dir/gh.txt" 2> "$work_dir/gh.err" || gh_rc=$?
+if [ "$gh_rc" -ne 0 ]; then
+  printf 'gh extension inventory failed (rc=%s): %s\n' "$gh_rc" "$(head -c 500 "$work_dir/gh.err")" >> "$work_dir/errors.txt"
+fi
+
+uv_rc=0
+/opt/homebrew/bin/gtimeout 30s uv tool list --show-version-specifiers \
+  > "$work_dir/uv.txt" 2> "$work_dir/uv.err" || uv_rc=$?
+if [ "$uv_rc" -ne 0 ]; then
+  printf 'uv tool inventory failed (rc=%s): %s\n' "$uv_rc" "$(head -c 500 "$work_dir/uv.err")" >> "$work_dir/errors.txt"
+fi
 
 duration_seconds=$(( $(date '+%s') - run_started_epoch ))
 /usr/bin/jq -nc \
