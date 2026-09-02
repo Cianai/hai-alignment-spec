@@ -3,8 +3,19 @@
 # lane and never removes undeclared extras.
 brew "chezmoi"
 brew "topgrade"
+# Vendor-community read lane: tokenless desktop-cache mirrors (Slack, Discord)
+# and public X reads for tracking tooling accounts. Read-only by construction.
+tap "openclaw/tap"
+tap "steipete/tap"
+brew "slacrawl"
+brew "discrawl"
+brew "birdclaw"
 {{ if eq .chezmoi.hostname "macmini" -}}
 # macOS has no wall-clock timeout utility. The Mini's unattended maintenance
 # lanes use gtimeout to enforce the fleet maximum-runtime contract.
 brew "coreutils"
+# The Mini is the always-on host for the desktop-cache mirrors, so it carries the
+# desktop apps as casks; the MacBook installs are outside Homebrew and stay so.
+cask "slack"
+cask "discord"
 {{ end -}}
