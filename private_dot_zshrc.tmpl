@@ -16,7 +16,7 @@ export PATH="$PATH:{{ .chezmoi.homeDir }}/Library/Python/3.14/bin"
 # 1Password "Dev Tools" for local-only). This shell no longer eagerly exports them - that sprayed
 # ~11 Keychain secrets into every terminal for no benefit. For an ad-hoc terminal command:
 #   doppler run -- <cmd>                          # multi-surface secrets (claudian/dev)
-#   op read "op://Dev Tools/<NAME>/credential"    # local-only secrets
+#   op read "op://Agent Runtime/<NAME>/credential"    # local-only secrets
 # Reach-table + retirement map: ~/.claude/CLAUDE.md  "API keys + secrets".
 # Telemetry (OTEL->Honeycomb) now lives in ~/.claude/settings.json, managed by the hook.
 
@@ -111,3 +111,5 @@ fi
 
 # flow-cli (guarded — an uninstall must not error every new shell)
 [ -r /opt/homebrew/opt/flow-cli/flow.plugin.zsh ] && source /opt/homebrew/opt/flow-cli/flow.plugin.zsh
+
+[[ -z "${CLAUDECODE:-}" ]] && source /Users/cianosullivan/.config/op/plugins.sh
