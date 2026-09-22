@@ -3,6 +3,9 @@
 # lane and never removes undeclared extras.
 brew "chezmoi"
 brew "topgrade"
+# 1Password CLI beta: the adopted lane for `op run --environment` and
+# `op environment read` on both hosts (the stable cask lacks Environments).
+cask "1password-cli@beta"
 {{ if eq .chezmoi.hostname "macmini" -}}
 # macOS has no wall-clock timeout utility. The Mini's unattended maintenance
 # lanes use gtimeout to enforce the fleet maximum-runtime contract.
