@@ -6,6 +6,12 @@ brew "topgrade"
 # 1Password CLI beta: the adopted lane for `op run --environment` and
 # `op environment read` on both hosts (the stable cask lacks Environments).
 cask "1password-cli@beta"
+{{ if ne .chezmoi.hostname "macmini" -}}
+# Terraform for the Linear configuration declaration (infra/linear requires
+# >= 1.16.3; homebrew-core carries no terraform formula, so the HashiCorp tap).
+tap "hashicorp/tap"
+brew "hashicorp/tap/terraform"
+{{ end -}}
 {{ if eq .chezmoi.hostname "macmini" -}}
 # macOS has no wall-clock timeout utility. The Mini's unattended maintenance
 # lanes use gtimeout to enforce the fleet maximum-runtime contract.
