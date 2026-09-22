@@ -1,0 +1,2 @@
+.local/bin/topgrade-daily.sh
+Library/LaunchAgents/com.cianosullivan.topgrade-daily.plist
