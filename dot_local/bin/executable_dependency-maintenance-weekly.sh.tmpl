@@ -19,6 +19,17 @@ lock_file="$state_dir/maintenance.lock"
 mkdir -p "$log_dir" "$state_dir"
 
 iso_ts() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
+
+honeybadger_check_in() {
+  local slug="$1"
+  if ! command -v doppler >/dev/null 2>&1; then
+    return 0
+  fi
+  doppler run --project claudian --config dev --command \
+    "curl -fsS -o /dev/null --connect-timeout 5 --max-time 15 \"https://api.honeybadger.io/v1/check_in/\${HONEYBADGER_PROJECT_API_KEY}/${slug}\"" \
+    >/dev/null 2>&1 || true
+}
+
 host_name=$(/usr/sbin/scutil --get LocalHostName 2>/dev/null || hostname -s)
 script_path=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 
@@ -78,4 +89,7 @@ fi
     failure_route:"ABCD-907"
   }' | tee -a "$result_log" > "$latest_result.tmp"
 mv "$latest_result.tmp" "$latest_result"
+if [ "$rc" -eq 0 ]; then
+  honeybadger_check_in "dependency-maintenance-weekly-mini"
+fi
 exit "$rc"
