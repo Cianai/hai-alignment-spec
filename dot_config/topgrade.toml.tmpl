@@ -19,7 +19,7 @@ arguments = "--rebase --autostash"
 [commands]
 {{ if ne .chezmoi.hostname "macmini" -}}
 
-# Package-manager cache GC (added 2026-08-18, ABCD-793 attribution pass). topgrade's --cleanup
+# Package-manager cache GC (added 2026-08-18). topgrade's --cleanup
 # only cleans its own update steps; uv and npm therefore use their first-party GC.
 # `npm cache verify` garbage-collects + integrity-checks (never `clean --force`); puppeteer/HF
 # stale-version sweeps stay manual (version-aware deletion, small footprints).

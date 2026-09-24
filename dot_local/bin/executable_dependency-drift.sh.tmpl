@@ -45,7 +45,7 @@ if [[ "${DEPENDENCY_MAINTENANCE_LOCK_HELD:-0}" != 1 ]]; then
       --arg observed_at "$observed_at" \
       --arg run_id "${host_name}:${observed_at}:$$" \
       --arg host "$host_name" \
-      '{schema_version:6,run_id:$run_id,worker:"dependency-drift",binding_id:"com.cianosullivan.dependency-drift",trigger_id:"launchd:calendar:four-hour",source_id:"host-package-managers",observed_at:$observed_at,host:$host,constraints:{read_only:true},result:{classification:"deferred",disposition:"defer",reason:"dependency-maintenance lock held",exit_code:75},failure_route:"ABCD-907"}' \
+      '{schema_version:6,run_id:$run_id,worker:"dependency-drift",binding_id:"com.cianosullivan.dependency-drift",trigger_id:"launchd:calendar:four-hour",source_id:"host-package-managers",observed_at:$observed_at,host:$host,constraints:{read_only:true},result:{classification:"deferred",disposition:"defer",reason:"dependency-maintenance lock held",exit_code:75},failure_route:null}' \
       | tee -a "$result_log" > "$latest_result.tmp"
     mv "$latest_result.tmp" "$latest_result"
   fi
@@ -161,14 +161,14 @@ duration_seconds=$(( $(date '+%s') - run_started_epoch ))
         classification:"host-dependency-drift",
         materiality:"unassessed",
         disposition:(if ($exceptions|length)>0 then "fail" elif $outdated_count>0 then "enrich-owner" else "retain-state" end),
-        target:"ABCD-907",
+        target:null,
         writer:null,
         proposed_mutation:null,
         authorization:"read-only",
         lifecycle_action:null,
         verification:{fresh_read:true,outdated_count:$outdated_count},
         next_cursor:null,
-        failure_route:"ABCD-907"
+        failure_route:null
       }
     }
   ' | tee -a "$result_log" > "$latest_result.tmp"
