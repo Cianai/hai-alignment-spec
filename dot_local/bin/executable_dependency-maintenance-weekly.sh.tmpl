@@ -86,7 +86,7 @@ fi
     host:$host,
     constraints:{lifecycle_action:"gc-auto",undeclared_extra_removal:false,pnpm_store_prune:false,maximum_runtime_seconds:2400},
     result:{classification:"manager-native-garbage-collection",disposition:$disposition,lifecycle_action:(if $disposition=="gc-auto" then "gc-auto" else null end),duration_seconds:$duration_seconds,steps:{homebrew:{exit_code:$brew_rc},uv:{exit_code:$uv_rc},npm:{exit_code:$npm_rc}}},
-    failure_route:"ABCD-907"
+    failure_route:null
   }' | tee -a "$result_log" > "$latest_result.tmp"
 mv "$latest_result.tmp" "$latest_result"
 if [ "$rc" -eq 0 ]; then
