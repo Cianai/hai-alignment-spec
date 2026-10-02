@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Weekly manager-native garbage collection for the Mini. This is gc-auto only:
-# no undeclared-extra removal and no pnpm store prune.
+# no undeclared-extra removal and no pnpm store prune. It also prunes the CASS
+# raw mirror on the Mini, the only CASS host, through CASS's own prune verb.
 
 set -uo pipefail
 umask 022
@@ -44,6 +45,7 @@ run_started_epoch=$(date '+%s')
 brew_rc=0
 uv_rc=0
 npm_rc=0
+cass_rc=0
 
 {
   printf '[%s] weekly dependency GC start\n' "$observed_at"
@@ -55,10 +57,15 @@ npm_rc=0
   fi
   /opt/homebrew/bin/gtimeout 300s npm cache verify || npm_rc=$?
   printf 'pnpm store prune: excluded; attended only because it forces a cold next update\n'
+  if command -v cass >/dev/null 2>&1; then
+    /opt/homebrew/bin/gtimeout --signal=TERM --kill-after=30s 900s cass mirror prune --older-than 30d --apply || cass_rc=$?
+  else
+    printf 'cass raw-mirror prune: cass not installed on this host, skipped\n'
+  fi
 } >> "$log_file" 2>&1
 
 duration_seconds=$(( $(date '+%s') - run_started_epoch ))
-if [ "$brew_rc" -eq 0 ] && [ "$uv_rc" -eq 0 ] && [ "$npm_rc" -eq 0 ]; then
+if [ "$brew_rc" -eq 0 ] && [ "$uv_rc" -eq 0 ] && [ "$npm_rc" -eq 0 ] && [ "$cass_rc" -eq 0 ]; then
   rc=0
   disposition="gc-auto"
 else
@@ -75,6 +82,7 @@ fi
   --argjson brew_rc "$brew_rc" \
   --argjson uv_rc "$uv_rc" \
   --argjson npm_rc "$npm_rc" \
+  --argjson cass_rc "$cass_rc" \
   '{
     schema_version:6,
     run_id:$run_id,
@@ -84,8 +92,8 @@ fi
     source_id:"manager-native-garbage-collection",
     observed_at:$observed_at,
     host:$host,
-    constraints:{lifecycle_action:"gc-auto",undeclared_extra_removal:false,pnpm_store_prune:false,maximum_runtime_seconds:2400},
-    result:{classification:"manager-native-garbage-collection",disposition:$disposition,lifecycle_action:(if $disposition=="gc-auto" then "gc-auto" else null end),duration_seconds:$duration_seconds,steps:{homebrew:{exit_code:$brew_rc},uv:{exit_code:$uv_rc},npm:{exit_code:$npm_rc}}},
+    constraints:{lifecycle_action:"gc-auto",undeclared_extra_removal:false,pnpm_store_prune:false,cass_mirror_prune_older_than:"30d",maximum_runtime_seconds:3300},
+    result:{classification:"manager-native-garbage-collection",disposition:$disposition,lifecycle_action:(if $disposition=="gc-auto" then "gc-auto" else null end),duration_seconds:$duration_seconds,steps:{homebrew:{exit_code:$brew_rc},uv:{exit_code:$uv_rc},npm:{exit_code:$npm_rc},cass_mirror:{exit_code:$cass_rc}}},
     failure_route:null
   }' | tee -a "$result_log" > "$latest_result.tmp"
 mv "$latest_result.tmp" "$latest_result"
