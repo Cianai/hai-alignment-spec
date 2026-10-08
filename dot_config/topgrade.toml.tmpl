@@ -19,6 +19,8 @@ autoremove = true
 repos = ["~/Repositories/Claudian"]
 # A checkout left on another branch still has its default branch fetched and fast-forwarded.
 fallback_to_fetch_default = true
+# Pull only the listed checkouts, not Topgrade's predefined editor and shell config repos.
+pull_predefined = false
 
 [commands]
 {{ if ne .chezmoi.hostname "macmini" -}}
