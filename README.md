@@ -12,7 +12,7 @@ it does not publish local drift automatically.
 | Required Homebrew membership | the managed Brewfile; `brew bundle check/install` restores missing formulae |
 | Upgrades of installed host tools | Topgrade and each retained native updater |
 | Repository dependency pins | Renovate in the consuming repository |
-| Secrets and credentials | Doppler or 1Password; only references may enter templates |
+| Secrets and credentials | 1Password; only `op://` references may enter templates |
 | MCP contracts, plugin and skill membership, agent instructions | their native or Claudian repository authorities, never this repository |
 
 The current managed slice is deliberately narrow:
@@ -34,7 +34,7 @@ is projected onto the MacBook:
   pruning and undeclared-extra removal.
 
 Secret-bearing paths and coding-agent primitive directories are denied in
-`.chezmoiignore`. In particular, chezmoi never manages `~/.doppler.env`.
+`.chezmoiignore`.
 
 ## Host workflow
 

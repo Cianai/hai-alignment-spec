@@ -23,13 +23,11 @@ mkdir -p "$log_dir" "$state_dir"
 iso_ts() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 
 honeybadger_check_in() {
-  local slug="$1"
-  if ! command -v doppler >/dev/null 2>&1; then
-    return 0
-  fi
-  doppler run --project claudian --config dev --command \
-    "curl -fsS -o /dev/null --connect-timeout 5 --max-time 15 \"https://api.honeybadger.io/v1/check_in/\${HONEYBADGER_PROJECT_API_KEY}/${slug}\"" \
-    >/dev/null 2>&1 || true
+  local slug="$1" token_file="$HOME/.config/op/service-account.token" key
+  [[ -r "$token_file" ]] || return 0
+  key=$(unset OP_CONNECT_HOST OP_CONNECT_TOKEN; OP_SERVICE_ACCOUNT_TOKEN="$(<"$token_file")" /opt/homebrew/bin/op read "op://Agent Runtime/h552d3kgxrajckhdkax34al7se/Project API Key" 2>/dev/null) || return 0
+  [[ -n "$key" ]] || return 0
+  curl -fsS -o /dev/null --connect-timeout 5 --max-time 15 "https://api.honeybadger.io/v1/check_in/${key}/${slug}" >/dev/null 2>&1 || true
 }
 
 host_name=$(/usr/sbin/scutil --get LocalHostName 2>/dev/null || hostname -s)

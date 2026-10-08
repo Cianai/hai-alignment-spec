@@ -1,6 +1,5 @@
 # Secret material and credentials are never owned by this repository.
 README.md
-.doppler.env
 .env
 .env.*
 .ssh/**
