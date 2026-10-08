@@ -9,16 +9,11 @@ export SLASH_COMMAND_TOOL_CHAR_BUDGET=30000
 # Python 3.14 user scripts
 export PATH="$PATH:{{ .chezmoi.homeDir }}/Library/Python/3.14/bin"
 
-# ============================================
-# API keys / secrets — moved out of this shell (clau-aoy, 2026-06-05)
-# ============================================
-# Claude sessions get secrets from the SessionStart hook (Doppler-primary -> settings.json .env;
-# 1Password "Dev Tools" for local-only). This shell no longer eagerly exports them - that sprayed
-# ~11 Keychain secrets into every terminal for no benefit. For an ad-hoc terminal command:
-#   doppler run -- <cmd>                          # multi-surface secrets (claudian/dev)
-#   op read "op://Dev Tools/<NAME>/credential"    # local-only secrets
-# Reach-table + retirement map: ~/.claude/CLAUDE.md  "API keys + secrets".
-# Telemetry (OTEL->Honeycomb) now lives in ~/.claude/settings.json, managed by the hook.
+# Secrets: none are exported here. Agents and ad-hoc commands read 1Password at
+# call time through the service account in ~/.config/op/service-account.token:
+#   op run --environment v5mcungkaswrwwro5ckzrena5q -- <cmd>    # shared values
+#   op read "op://Agent Runtime/<item id>/<field>"             # single-consumer items
+# ~/.zshenv injects the op:// references in ~/.config/op/agent-runtime.env.
 
 # pyenv configuration
 export PYENV_ROOT="$HOME/.pyenv"
