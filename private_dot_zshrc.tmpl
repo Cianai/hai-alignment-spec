@@ -106,3 +106,6 @@ fi
 
 # flow-cli (guarded — an uninstall must not error every new shell)
 [ -r /opt/homebrew/opt/flow-cli/flow.plugin.zsh ] && source /opt/homebrew/opt/flow-cli/flow.plugin.zsh
+
+# 1Password shell plugins (gh, aws and the like), interactive shells only; skipped inside Claude Code.
+[[ -z "${CLAUDECODE:-}" ]] && source {{ .chezmoi.homeDir }}/.config/op/plugins.sh
