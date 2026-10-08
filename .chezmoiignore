@@ -30,6 +30,7 @@ README.md
 .local/bin/dependency-maintenance-weekly.sh
 Library/LaunchAgents/com.cianosullivan.dependency-drift.plist
 Library/LaunchAgents/com.cianosullivan.dependency-maintenance-weekly.plist
+Library/LaunchAgents/ie.cianos.claude-remote.plist
 {{ end -}}
 
 # Refuse to render onto an unreviewed host.

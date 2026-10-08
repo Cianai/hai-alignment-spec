@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>ie.cianos.claude-remote</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{ .chezmoi.homeDir }}/.local/bin/claude</string>
+		<string>remote-control</string>
+		<string>--spawn</string>
+		<string>worktree</string>
+		<string>--no-create-session-in-dir</string>
+		<string>--remote-control-session-name-prefix</string>
+		<string>mini</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>{{ .chezmoi.homeDir }}/Repositories/Claudian</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>{{ .chezmoi.homeDir }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>{{ .chezmoi.homeDir }}/Library/Logs/claude-remote.log</string>
+	<key>StandardErrorPath</key>
+	<string>{{ .chezmoi.homeDir }}/Library/Logs/claude-remote.log</string>
+</dict>
+</plist>

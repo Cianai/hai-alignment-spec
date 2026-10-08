@@ -13,8 +13,12 @@ notify_end = "on_failure"
 autoremove = true
 
 [git]
-# When a manual sweep pulls tracked repos, rebase + autostash rather than merge-commit.
-arguments = "--rebase --autostash"
+# The git_repos step fast-forwards each listed checkout with `git pull --ff-only`, so a
+# checkout with local commits fails loudly instead of being rewritten. No --rebase or
+# --autostash: autostash writes to the stash that every worktree of the repository shares.
+repos = ["~/Repositories/Claudian"]
+# A checkout left on another branch still has its default branch fetched and fast-forwarded.
+fallback_to_fetch_default = true
 
 [commands]
 {{ if ne .chezmoi.hostname "macmini" -}}
